@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Intruder Analyser</title>
+
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js" data-manual></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-okaidia.min.css" />
+
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f8f9fa; }
+        .app-container { display: flex; flex-direction: column; height: 100vh; }
+        
+        .analysis-pane { height: 20vh; border-bottom: 2px solid #dee2e6; }
+        .table-pane { height: 30vh; border-bottom: 2px solid #dee2e6; }
+        .details-pane { height: 50vh; }
+
+        .pane-content { padding: 10px 15px; height: 100%; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; }
+        .pane-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .pane-title { margin: 0; color: #495057; }
+        .pane-controls { display: flex; align-items: center; gap: 10px; }
+        .pane-controls button, .pane-controls label { font-size: 0.9em; }
+        .pane-controls input[type="text"], .pane-controls input[type="number"] { font-size: 0.9em; padding: 4px; border: 1px solid #ccc; border-radius: 3px; width: 80px; }
+        button { cursor: pointer; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 5px 10px; }
+        button:hover { background-color: #e9ecef; }
+        button.active { background-color: #0d6efd; color: white; border-color: #0d6efd; }
+        input:disabled { background-color: #e9ecef; cursor: not-allowed; }
+        
+        .analysis-layout { display: flex; height: 100%; gap: 20px; }
+        .status-summary-container { flex: 0 0 250px; min-width: 0; overflow: hidden; }
+        .string-filters-pane { flex: 1; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; }
+        .histogram-container { flex: 1; min-width: 0; overflow: hidden; position: relative; }
+        .histogram-controls { position: absolute; top: 5px; right: 10px; z-index: 10; font-size: 0.7em; background: rgba(255,255,255,0.7); padding: 2px 5px; border-radius: 3px; display: flex; align-items: center; gap: 10px;}
+        .histogram-info { font-weight: bold; color: #495057; margin-right: 10px; }
+		.run-info-group { display: flex; align-items: center; gap: 15px; }
+        .run-info { font-size: 0.7em; color: #6c757d; display: flex; align-items: center; gap: 15px; }
+        .running-indicator { height: 17px; width: 17px; }
+        .ws-status { font-size: 0.7em; color: #495057; display: flex; align-items: center; gap: 5px; }
+        .ws-status-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .ws-status-dot.connecting { background-color: #fd7e14; }
+        .ws-status-dot.connected { background-color: #198754; }
+        .ws-status-dot.disconnected { background-color: #dc3545; }
+        
+        .string-filters-container { display: flex; flex-direction: column; gap: 10px; }
+        .filter-input-group { display: flex; gap: 5px; }
+        .filter-input-group input { flex-grow: 1; border: 1px solid #ccc; border-radius: 3px; padding: 5px; }
+        .filter-tags-area { display: flex; flex-direction: column; gap: 10px; }
+        .filter-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .filter-group h5 { margin: 0 5px 0 0; font-size: 0.9em; color: #6c757d; }
+        .filter-tag { border-radius: 12px; padding: 2px 8px; font-size: 0.85em; position: relative; }
+        .filter-tag:not(.active) { background-color: #f8f9fa; text-decoration: line-through; color: #6c757d; }
+        .remove-tag { margin-left: 5px; font-weight: bold; padding: 0 4px; border-radius: 50%; cursor: pointer; }
+        .remove-tag:hover { color: #dc3545; background-color: rgba(0,0,0,0.1); }
+        
+        .scrollable-table { height: 100%; overflow-y: auto; }
+        .scrollable-table:focus { outline: 2px solid #0d6efd; outline-offset: -2px; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 0.7em; }
+        th, td { padding: 3px 10px; border: 1px solid #ddd; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px; }
+        th { background-color: #f7f7f7; position: sticky; top: 0; cursor: pointer; }
+        th .sort-indicator { margin-left: 5px; color: #6c757d; }
+        .header-minmax { font-size: 0.8em; font-weight: normal; color: #6c757d; margin-left: 4px;}
+        tbody tr:hover { background-color: #eef5ff; }
+        tbody tr.clickable { cursor: pointer; }
+        tbody tr.selected { background-color: #0d6efd; color: white; font-weight: bold; }
+        tbody tr.selected:hover { background-color: #0b5ed7; }
+
+        .details-content { display: flex; flex-grow: 1; border-radius: 5px; overflow: auto; background-color: #272822; font-family: Consolas,Monaco,'Andale Mono','Ubuntu Mono',monospace; line-height: 1.2em; font-size: 13px; color: #f1f1f1; }
+        .line-numbers { flex-shrink: 0; text-align: right; padding: 10px 10px 10px 0; color: #6c757d; user-select: none; }
+        .code-content { flex-grow: 1; padding: 10px 10px 10px 0; min-width: 0; }
+        .code-content pre, .code-content code { margin: 0; padding: 0; background: none !important; }
+        .code-content pre > * { font-size: 13px; }
+		.code-content code { display: block; }
+        .code-content mark { background-color: #f5da58; color: #000; padding: 0; border-radius: 2px;}
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef, useLayoutEffect } = React;
+
+        // ## Utility Functions ##
+        const escapeRegExp = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const decodeBase64Utf8 = (base64) => { try { const binaryString = atob(base64); const bytes = new Uint8Array(binaryString.length); for (let i = 0; i < binaryString.length; i++) { bytes[i] = binaryString.charCodeAt(i); } return new TextDecoder('utf-8').decode(bytes); } catch (e) { return "Error decoding content."; } };
+        const splitHttp = (httpMessage) => { if (!httpMessage) return { headers: '', body: '' }; const separator = '\r\n\r\n'; const bodyIndex = httpMessage.indexOf(separator); if (bodyIndex === -1) return { headers: httpMessage, body: '' }; return { headers: httpMessage.substring(0, bodyIndex), body: httpMessage.substring(bodyIndex + separator.length) }; };
+        const getContentType = (headers) => { if (!headers) return ''; const match = headers.match(/^Content-Type:\s*([^\s\r\n]+)/im); return match ? match[1].toLowerCase() : ''; };
+        const prettyPrint = (body, type) => { try { if (type.includes('json')) { return JSON.stringify(JSON.parse(body), null, 2); } if (type.includes('xml') || type.includes('html')) { let formatted = '', indent = ''; body.replace(/>\s*</g, '>\n<').split('\n').forEach(line => { const trimmed = line.trim(); if (!trimmed) return; if (trimmed.startsWith('</')) indent = indent.substring(2); formatted += indent + trimmed + '\n'; if (trimmed.startsWith('<') && !trimmed.startsWith('</') && !trimmed.endsWith('/>')) indent += '  '; }); return formatted.trim(); } } catch (e) { /* Fallback */ } return body; };
+
+        // ## Filter Component ##
+        const StringFilters = ({ includeFilters, excludeFilters, filterCounts, onAddFilter, onToggleFilter, onRemoveFilter }) => {
+            const [inputText, setInputText] = useState('');
+            const handleAdd = (type) => { const trimmed = inputText.trim(); if (trimmed) { onAddFilter(type, trimmed); setInputText(''); } };
+            const handleKeyDown = (event) => { if (event.key === 'Enter') { handleAdd('include'); } };
+            const FilterTag = ({ filter, onToggle, onRemove }) => (
+                <button className={`filter-tag ${filter.active ? 'active' : ''}`} onClick={() => onToggle(filter.id)} title={filter.active ? 'Click to deactivate' : 'Click to activate'}>
+                    {filter.text} ({filterCounts[filter.id] || 0})
+                    <span className="remove-tag" onClick={(e) => { e.stopPropagation(); onRemove(filter.id); }} title="Remove filter">&times;</span>
+                </button>
+            );
+            return (
+                <div className="string-filters-container">
+                    <div className="filter-input-group">
+                        <input type="text" value={inputText} onChange={e => setInputText(e.target.value)} onKeyDown={handleKeyDown} placeholder="Filter by string..." />
+                        <button onClick={() => handleAdd('include')} title="Show only requests containing this string">Include</button>
+                        <button onClick={() => handleAdd('exclude')} title="Hide requests containing this string">Exclude</button>
+                    </div>
+                    <div className="filter-tags-area">
+                        {includeFilters.length > 0 && <div className="filter-group"><h5>Include:</h5>{includeFilters.map(filter => <FilterTag key={filter.id} filter={filter} onToggle={onToggleFilter} onRemove={onRemoveFilter} />)}</div>}
+                        {excludeFilters.length > 0 && <div className="filter-group"><h5>Exclude:</h5>{excludeFilters.map(filter => <FilterTag key={filter.id} filter={filter} onToggle={onToggleFilter} onRemove={onRemoveFilter} />)}</div>}
+                    </div>
+                </div>
+            );
+        };
+
+        // ## Analysis Pane Component ##
+        const AnalysisPane = (props) => (
+            <div className="pane-content">
+                <div className="pane-header">
+                    <button onClick={props.onResetFilters}>Reset All Filters</button>
+                    <div className="run-info-group">
+                         <div className={`ws-status`}>
+                            <div className={`ws-status-dot ${props.wsStatus.toLowerCase()}`}></div>
+                            <span>{props.wsStatus}</span>
+                        </div>
+                        {props.runInfo && props.runInfo.start && (
+                            <div className="run-info">
+                                <span><strong>Run Start:</strong> {new Date(props.runInfo.start).toLocaleString()}</span>
+                                {!props.runInfo.end && (
+                                    <img src="https://i.gifer.com/ZZ5H.gif" alt="Running..." className="running-indicator" title="Intruder run in progress..." />
+                                )}
+                                {props.runInfo.end && <span><strong>Run End:</strong> {new Date(props.runInfo.end).toLocaleString()}</span>}
+                            </div>
+                        )}
+                    </div>
+                </div>
+                <div className="analysis-layout">
+                    <div className="status-summary-container"><StatusCodeSummary data={props.statusSummaryData} allPossibleStatusCodes={props.allPossibleStatusCodes} {...props} /></div>
+                    <div className="string-filters-pane"><StringFilters {...props} /></div>
+                    <div className="histogram-container"><Histogram data={props.histogramData} {...props} /></div>
+                </div>
+            </div> 
+        );
+        const StatusCodeSummary = ({ data, allPossibleStatusCodes, selectedStatusCodes, onStatusSelect }) => {
+            const statusCounts = useMemo(() => { if (!data) return {}; return data.reduce((acc, req) => { acc[req.statusCode] = (acc[req.statusCode] || 0) + 1; return acc; }, {}); }, [data]);
+            return ( <div className="scrollable-table"><table><thead><tr><th>Status Code</th><th>Count</th></tr></thead><tbody>{(allPossibleStatusCodes || []).map(status => ( <tr key={status} className={`clickable ${selectedStatusCodes.includes(status) ? 'selected' : ''}`} onClick={() => onStatusSelect(status)}><td>{status}</td><td>{statusCounts[status] || 0}</td></tr> ))}</tbody></table></div> );
+        };
+        const Histogram = ({ data, selectedRanges, onRangeSelect, onSelectAllRanges }) => {
+            const [useLogScale, setUseLogScale] = useState(false);
+            const canvasRef = useRef(null);
+            const chartRef = useRef(null);
+            const { min, max } = useMemo(() => { if (!data || data.length === 0) return { min: 0, max: 0 }; const lengths = data.map(r => r.totalResponseLength); return { min: Math.min(...lengths), max: Math.max(...lengths) }; }, [data]);
+            const { labels, datasets, allRanges } = useMemo(() => {
+                if (!data || data.length === 0) return { labels: Array(10).fill().map((_, i) => `${i*10}-${i*10+9}`), datasets: [{ data: Array(10).fill(0) }], allRanges: [] };
+                const maxLength = max > 0 ? max : Math.max(...data.map(r => r.totalResponseLength), 0);
+                const binSize = Math.ceil((maxLength + 1) / 10) || 10;
+                const bins = Array(10).fill(0);
+                const ranges = [];
+                for (let i = 0; i < 10; i++) { const min = i * binSize; const max = (i + 1) * binSize - 1; ranges.push({ min, max }); }
+                data.forEach(req => { const binIndex = Math.min(Math.floor(req.totalResponseLength / binSize), 9); bins[binIndex]++; });
+                const backgroundColors = ranges.map(range => selectedRanges.some(r => r.min === range.min) ? 'rgba(22, 163, 74, 0.7)' : 'rgba(255, 99, 132, 0.5)');
+                return { labels: ranges.map(r => `${r.min} - ${r.max}`), datasets: [{ label: 'Response Count', data: bins, backgroundColor: backgroundColors }], allRanges: ranges };
+            }, [data, selectedRanges, max]);
+            useEffect(() => {
+                if (chartRef.current) chartRef.current.destroy();
+                chartRef.current = new Chart(canvasRef.current.getContext('2d'), { type: 'bar', data: { labels, datasets }, options: { responsive: true, maintainAspectRatio: false, animation: { duration: 0 }, plugins: { legend: { display: false }, title: { display: false } }, scales: { y: { type: useLogScale ? 'logarithmic' : 'linear' } }, onClick: (e, el) => { if (el.length > 0) onRangeSelect(allRanges[el[0].index]); } } });
+                return () => { if (chartRef.current) chartRef.current.destroy() };
+            }, [labels, datasets, useLogScale, allRanges, onRangeSelect]);
+            return ( <React.Fragment><div className="histogram-controls"><span className="histogram-info">Min: {min} / Max: {max}</span><button onClick={() => onSelectAllRanges(allRanges)}>All On</button><button onClick={() => onSelectAllRanges([])}>All Off</button><label><input type="checkbox" checked={useLogScale} onChange={() => setUseLogScale(!useLogScale)} /> Logarithmic Scale</label></div><canvas ref={canvasRef}></canvas></React.Fragment> );
+        };
+        
+        const RequestsTable = ({ requests, selectedRequest, onRowSelect, sortConfig, onSort, onTableKeyDown }) => {
+            const { minTotal, maxTotal, minResponse, maxResponse } = useMemo(() => {
+                if (!requests || requests.length === 0) return { minTotal: 0, maxTotal: 0, minResponse: 0, maxResponse: 0 };
+                const totalLengths = requests.map(r => r.totalResponseLength);
+                const responseLengths = requests.map(r => r.responseLength);
+                return { minTotal: Math.min(...totalLengths), maxTotal: Math.max(...totalLengths), minResponse: Math.min(...responseLengths), maxResponse: Math.max(...responseLengths) };
+            }, [requests]);
+            const getIndicator = (key) => (sortConfig.key !== key ? '↕' : sortConfig.direction === 'ascending' ? '🔼' : '🔽');
+            return ( <div className="scrollable-table" onKeyDown={onTableKeyDown} tabIndex="0"><table><thead><tr>
+                <th onClick={() => onSort('id')}>ID <span className="header-minmax">({requests.length})</span> <span className="sort-indicator">{getIndicator('id')}</span></th>
+                <th onClick={() => onSort('statusCode')}>Status <span className="sort-indicator">{getIndicator('statusCode')}</span></th>
+                <th onClick={() => onSort('responseTime')}>Time (ms) <span className="sort-indicator">{getIndicator('responseTime')}</span></th>
+                <th onClick={() => onSort('totalResponseLength')}>Total Length<span className="header-minmax">({minTotal}/{maxTotal})</span> <span className="sort-indicator">{getIndicator('totalResponseLength')}</span></th>
+                <th onClick={() => onSort('responseLength')}>CT Length<span className="header-minmax">({minResponse}/{maxResponse})</span> <span className="sort-indicator">{getIndicator('responseLength')}</span></th>
+                <th onClick={() => onSort('payload')}>Payload <span className="sort-indicator">{getIndicator('payload')}</span></th>
+                <th onClick={() => onSort('url')}>URL <span className="sort-indicator">{getIndicator('url')}</span></th>
+            </tr></thead><tbody>{requests.map((row, i) => ( <tr key={row.id} id={`request-row-${i}`} className={`clickable ${row === selectedRequest ? 'selected' : ''}`} onClick={() => onRowSelect(row)}>
+                <td>{row.id}</td><td>{row.statusCode}</td><td>{row.responseTime}</td><td>{row.totalResponseLength}</td><td>{row.responseLength}</td><td>{String(row.payload)}</td><td>{row.url}</td>
+            </tr> ))}</tbody></table></div> );
+        };
+
+        const DetailsPane = ({ request, ...props }) => {
+            const [goToLine, setGoToLine] = useState('');
+            const [findString, setFindString] = useState('');
+            const [lineNumbers, setLineNumbers] = useState([]);
+            const scrollContainerRef = useRef(null);
+            const preRef = useRef(null);
+
+            const { headersToDisplay, processedBody, language, languageName, body } = useMemo(() => {
+                if (!request) return { headersToDisplay: '', processedBody: '', language: null, languageName: '', body: '' };
+                const decoded = decodeBase64Utf8(props.view === 'request' ? request.requestBase64 : request.responseBase64);
+                const { headers: rawHeaders, body: extractedBody } = splitHttp(decoded);
+                const contentType = getContentType(rawHeaders);
+                let lang = Prism.languages.markup;
+                let langName = 'markup';
+                if (contentType.includes('json') && Prism.languages.json) { lang = Prism.languages.json; langName = 'json'; }
+                const prettyBody = props.pretty ? prettyPrint(extractedBody, contentType) : extractedBody;
+                const headers = props.showHeaders ? rawHeaders + '\r\n\r\n' : '';
+                return { headersToDisplay: headers, processedBody: prettyBody, language: lang, languageName: langName, body: extractedBody };
+            }, [request, props.view, props.pretty, props.showHeaders]);
+
+            useLayoutEffect(() => {
+                const preEl = preRef.current;
+                if (!preEl) { setLineNumbers([]); return; }
+                const timer = setTimeout(() => {
+                    const lineHeight = 13 * 1.2;
+                    const totalVisualLines = preEl.scrollHeight > 0 ? Math.round(preEl.scrollHeight / lineHeight) : 0;
+                    setLineNumbers(Array.from({ length: totalVisualLines }, (_, i) => i + 1));
+                }, 0);
+                return () => clearTimeout(timer);
+            }, [headersToDisplay, processedBody, props.wordWrap]);
+
+            const applyFindHighlight = (html) => {
+                if (!findString) return html;
+                const safeFindString = escapeRegExp(findString);
+                return html.replace(new RegExp(`(?!<[^>]*)${safeFindString}(?![^<]*>)`, 'gi'), '<mark>$&</mark>');
+            };
+
+            const escapedHeadersHtml = useMemo(() => {
+                const escapeHtml = (unsafe) => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                return applyFindHighlight(escapeHtml(headersToDisplay));
+            }, [headersToDisplay, findString]);
+
+            const highlightedBodyHtml = useMemo(() => {
+                const escapeHtml = (unsafe) => unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                try {
+                    const highlighted = language ? Prism.highlight(processedBody, language, languageName) : escapeHtml(processedBody);
+                    return applyFindHighlight(highlighted);
+                } catch (e) { console.error("Highlighting failed:", e); return applyFindHighlight(escapeHtml(processedBody)); }
+            }, [processedBody, language, languageName, findString]);
+            
+            const handleFindChange = (e) => { setFindString(e.target.value); };
+            const handleGoToLineChange = (e) => { setGoToLine(e.target.value); };
+
+            useEffect(() => {
+                const container = scrollContainerRef.current;
+                if (!container) return;
+                if (findString) { const markEl = container.querySelector('mark'); if (markEl) { markEl.scrollIntoView({ behavior: 'auto', block: 'center' }); return; } }
+                if (goToLine) { const lineNum = parseInt(goToLine, 10); if (!isNaN(lineNum) && lineNum > 0) { const lineEl = container.querySelector(`#line-num-${lineNum}`); if (lineEl) { lineEl.scrollIntoView({ behavior: 'auto', block: 'start' }); return; } } }
+                container.scrollTop = 0;
+            }, [goToLine, findString, escapedHeadersHtml, highlightedBodyHtml]);
+            
+            const preStyle = { whiteSpace: props.wordWrap ? 'pre-wrap' : 'pre', overflowWrap: props.wordWrap ? 'break-word' : 'normal' };
+
+            if (!request) { return <div className="details-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6c757d' }}>Select a request to see details.</div>; }
+
+            return (
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    <div className="pane-header" style={{marginBottom: "10px", flexShrink: 0}}>
+                        <div className="pane-controls">
+                           <button onClick={() => props.setView('request')} className={props.view === 'request' ? 'active' : ''}>Request</button>
+                           <button onClick={() => props.setView('response')} className={props.view === 'response' ? 'active' : ''}>Response</button>
+                           <button onClick={() => props.setPretty(!props.pretty)} className={props.pretty ? 'active' : ''} disabled={!body}>{props.pretty ? 'Raw' : 'Pretty'}</button>
+                           <button onClick={() => props.setShowHeaders(!props.showHeaders)} className={props.showHeaders ? 'active' : ''}>{props.showHeaders ? 'Hide Headers' : 'Show Headers'}</button>
+                           <button onClick={() => props.setWordWrap(!props.wordWrap)} className={props.wordWrap ? 'active' : ''}>{props.wordWrap ? 'No Wrap' : 'Wrap'}</button>
+                           <input type="number" placeholder="Go to Line..." value={goToLine} onChange={handleGoToLineChange} min="1" />
+                           <input type="text" placeholder="Find String..." value={findString} onChange={handleFindChange} />
+                        </div>
+                    </div>
+                    <div className="details-content" ref={scrollContainerRef}>
+                        <div className="line-numbers">
+                            {lineNumbers.map((num, i) => <div key={i} id={`line-num-${num}`}>{num}</div>)}
+                        </div>
+                        <div className="code-content">
+                            <pre style={preStyle} ref={preRef}>
+                                {headersToDisplay && <div dangerouslySetInnerHTML={{ __html: escapedHeadersHtml }}></div>}
+                                {processedBody && <code dangerouslySetInnerHTML={{ __html: highlightedBodyHtml }}></code>}
+                            </pre>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+        
+        function App() {
+            const [allRequests, setAllRequests] = useState([]);
+            const [selectedRequest, setSelectedRequest] = useState(null);
+            const [selectedStatusCodes, setSelectedStatusCodes] = useState([]);
+            const [selectedRanges, setSelectedRanges] = useState([]);
+            const [includeFilters, setIncludeFilters] = useState([]);
+            const [excludeFilters, setExcludeFilters] = useState([]);
+            const [runInfo, setRunInfo] = useState({ start: null, end: null });
+            const [wsStatus, setWsStatus] = useState('Connecting...');
+            const [sortConfig, setSortConfig] = useState({ key: 'id', direction: 'ascending' });
+            const [pretty, setPretty] = useState(false);
+            const [showHeaders, setShowHeaders] = useState(true);
+            const [wordWrap, setWordWrap] = useState(false);
+            const [view, setView] = useState('request');
+            const resultsBuffer = useRef([]);
+
+            useEffect(() => {
+                let ws = null;
+                let reconnectTimer = null;
+                let isUnmounting = false;
+
+                function connect() {
+                    setWsStatus('Connecting...');
+                    ws = new WebSocket('ws://127.0.0.1:8888');
+                    
+                    ws.onopen = () => {
+                        console.log('WebSocket connection established.');
+                        setWsStatus('Connected');
+                    };
+
+                    ws.onmessage = (event) => {
+                        try {
+                            const message = JSON.parse(event.data);
+                            switch (message.type) {
+                                case 'runStart':
+                                    resultsBuffer.current = [];
+                                    setAllRequests([]);
+                                    setRunInfo({ start: message.data.startTime, end: null });
+                                    setSelectedRequest(null);
+                                    setSelectedStatusCodes([]);
+                                    setSelectedRanges([]);
+                                    setIncludeFilters(prev => prev.map(f => ({ ...f, active: false })));
+                                    setExcludeFilters(prev => prev.map(f => ({ ...f, active: false })));
+                                    break;
+                                case 'result':
+                                    if (message.data) { resultsBuffer.current.push(message.data); }
+                                    break;
+                                case 'runEnd':
+                                    setAllRequests(resultsBuffer.current);
+                                    setRunInfo(prev => ({ ...prev, end: message.data.endTime }));
+                                    break;
+                            }
+                        } catch (error) { console.error('Error parsing WebSocket message:', error); }
+                    };
+
+                    ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        setWsStatus('Error');
+                    };
+
+                    ws.onclose = () => {
+                        console.log('WebSocket connection closed.');
+                        setWsStatus('Disconnected');
+                        if (!isUnmounting) {
+                            clearTimeout(reconnectTimer);
+                            reconnectTimer = setTimeout(connect, 5000);
+                        }
+                    };
+                }
+
+                connect();
+
+                return () => {
+                    isUnmounting = true;
+                    clearTimeout(reconnectTimer);
+                    if(ws) ws.close();
+                };
+            }, []);
+            
+            const requestsWithSearchText = useMemo(() => allRequests.map(req => ({ ...req, searchText: (decodeBase64Utf8(req.requestBase64) + decodeBase64Utf8(req.responseBase64)).toLowerCase() })), [allRequests]);
+            const allPossibleStatusCodes = useMemo(() => Array.from(new Set(allRequests.map(r => r.statusCode))).sort((a,b) => a - b), [allRequests]);
+            
+            const filterCounts = useMemo(() => {
+                if (requestsWithSearchText.length === 0) return {};
+                const allFilters = [...includeFilters, ...excludeFilters];
+                const counts = {};
+                allFilters.forEach(f => {
+                    const textLower = f.text.toLowerCase();
+                    counts[f.id] = requestsWithSearchText.filter(req => req.searchText.includes(textLower)).length;
+                });
+                return counts;
+            }, [requestsWithSearchText, includeFilters, excludeFilters]);
+
+            const requestsForStatusCounts = useMemo(() => {
+                const activeInclude = includeFilters.filter(f => f.active);
+                const activeExclude = excludeFilters.filter(f => f.active);
+                return requestsWithSearchText.filter(req => {
+                    const rangeMatch = selectedRanges.length === 0 || selectedRanges.some(range => req.totalResponseLength >= range.min && req.totalResponseLength <= range.max);
+                    if (!rangeMatch) return false;
+                    if (activeExclude.length > 0 && activeExclude.some(f => req.searchText.includes(f.text.toLowerCase()))) return false;
+                    if (activeInclude.length > 0 && !activeInclude.some(f => req.searchText.includes(f.text.toLowerCase()))) return false;
+                    return true;
+                });
+            }, [requestsWithSearchText, selectedRanges, includeFilters, excludeFilters]);
+
+            const requestsForTable = useMemo(() => {
+                return requestsForStatusCounts.filter(req => {
+                    const statusMatch = selectedStatusCodes.length === 0 || selectedStatusCodes.includes(req.statusCode);
+                    return statusMatch;
+                });
+            }, [requestsForStatusCounts, selectedStatusCodes]);
+            
+            const handleStatusSelect = (code) => setSelectedStatusCodes(c => c.includes(code) ? c.filter(s => s !== code) : [...c, code]);
+            const handleRangeSelect = (range) => setSelectedRanges(c => c.some(r => r.min === range.min) ? c.filter(r => r.min !== range.min) : [...c, range]);
+            const handleResetFilters = () => {
+                setSelectedStatusCodes([]);
+                setSelectedRanges([]);
+                setIncludeFilters(prev => prev.map(f => ({ ...f, active: false })));
+                setExcludeFilters(prev => prev.map(f => ({ ...f, active: false })));
+                setSelectedRequest(null);
+            };
+            const handleSort = (key) => setSortConfig(c => ({ key, direction: c.key === key && c.direction === 'ascending' ? 'descending' : 'ascending' }));
+            const handleSelectAllRanges = (ranges) => setSelectedRanges(ranges);
+
+            const handleAddFilter = (type, text) => {
+                const newFilter = { id: Date.now(), text, active: true };
+                if (type === 'include') { if (!includeFilters.some(f => f.text.toLowerCase() === text.toLowerCase())) setIncludeFilters(prev => [...prev, newFilter]);
+                } else { if (!excludeFilters.some(f => f.text.toLowerCase() === text.toLowerCase())) setExcludeFilters(prev => [...prev, newFilter]); }
+            };
+            const handleToggleFilter = (id) => {
+                const toggle = (filters) => filters.map(f => f.id === id ? { ...f, active: !f.active } : f);
+                if (includeFilters.some(f => f.id === id)) { setIncludeFilters(toggle); } else { setExcludeFilters(toggle); }
+            };
+            const handleRemoveFilter = (id) => {
+                if (includeFilters.some(f => f.id === id)) { setIncludeFilters(prev => prev.filter(f => f.id !== id)); } 
+                else { setExcludeFilters(prev => prev.filter(f => f.id !== id)); }
+            };
+
+            const sortedRequestsForTable = useMemo(() => { const sorted = [...requestsForTable].sort((a, b) => (a[sortConfig.key] || 0) < (b[sortConfig.key] || 0) ? -1 : (a[sortConfig.key] || 0) > (b[sortConfig.key] || 0) ? 1 : 0); return sortConfig.direction === 'ascending' ? sorted : sorted.reverse(); }, [requestsForTable, sortConfig]);
+            
+            const handleTableKeyDown = (event) => { if (sortedRequestsForTable.length === 0) return; const currentIndex = selectedRequest ? sortedRequestsForTable.findIndex(r => r === selectedRequest) : -1; let newIndex = currentIndex; if (event.key === 'ArrowUp') { newIndex = Math.max(0, currentIndex - 1); } else if (event.key === 'ArrowDown') { newIndex = Math.min(sortedRequestsForTable.length - 1, currentIndex + 1); if (currentIndex === -1) newIndex = 0; } else if (event.key === 'Home') { newIndex = 0; } else if (event.key === 'End') { newIndex = sortedRequestsForTable.length - 1; } if (newIndex !== currentIndex) { event.preventDefault(); setSelectedRequest(sortedRequestsForTable[newIndex]); } };
+            useEffect(() => { if (!selectedRequest) return; const index = sortedRequestsForTable.findIndex(r => r === selectedRequest); if (index === -1) { setSelectedRequest(null); } else { const rowElement = document.getElementById(`request-row-${index}`); if (rowElement) { rowElement.scrollIntoView({ block: 'nearest' }); } } }, [selectedRequest, sortedRequestsForTable]);
+
+            return (
+                <div className="app-container">
+                    <div className="analysis-pane">
+                        <AnalysisPane 
+                            histogramData={requestsForTable}
+                            statusSummaryData={requestsForStatusCounts}
+                            allPossibleStatusCodes={allPossibleStatusCodes}
+                            selectedStatusCodes={selectedStatusCodes} 
+                            selectedRanges={selectedRanges} 
+                            onStatusSelect={handleStatusSelect} 
+                            onRangeSelect={handleRangeSelect} 
+                            onResetFilters={handleResetFilters} 
+                            onSelectAllRanges={handleSelectAllRanges}
+                            includeFilters={includeFilters}
+                            excludeFilters={excludeFilters}
+                            filterCounts={filterCounts}
+                            onAddFilter={handleAddFilter}
+                            onToggleFilter={handleToggleFilter}
+                            onRemoveFilter={handleRemoveFilter}
+                            runInfo={runInfo}
+                            wsStatus={wsStatus}
+                        />
+                    </div>
+                    <div className="table-pane">
+                        <div className="pane-content">
+                            <RequestsTable requests={sortedRequestsForTable} selectedRequest={selectedRequest} onRowSelect={setSelectedRequest} sortConfig={sortConfig} onSort={handleSort} onTableKeyDown={handleTableKeyDown} />
+                        </div>
+                    </div>
+                    <div className="details-pane"><div className="pane-content"><DetailsPane request={selectedRequest} pretty={pretty} setPretty={setPretty} showHeaders={showHeaders} setShowHeaders={setShowHeaders} wordWrap={wordWrap} setWordWrap={setWordWrap} view={view} setView={setView} /></div></div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
