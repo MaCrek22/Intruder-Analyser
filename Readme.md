@@ -1,6 +1,6 @@
 # Intruder Analyser
 
-Intruder Analyser is a combination of a Portswigger Burp Suite extension and a React-based SPA designed to help you analyze Burp Intruder outputs more effectively.
+Intruder Analyser is a combination of a Portswigger Burp Suite extension and a React-based SPA, designed to help you to analyze Burp Intruder outputs more effectively. Plugin opens websocket on Burps side and feed it with intruder req/rsp messages. React then read these messages and presenting it to analyse.  
 
 [<img src="https://github.com/MaCrek22/Intruder-Analyser/blob/main/screenshot.png" width="600" height="300"/>]
 
@@ -44,3 +44,4 @@ Take it, use it, improve it, it's up to you.
 ### ☕ Support
 
 If you find this tool helpful, feel free to [buy me a coffee](https://coindrop.to/macrek)
+
